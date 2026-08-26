@@ -5,6 +5,7 @@ import math
 import hashlib
 
 from pathlib import Path
+from contextlib import nullcontext
 from dataclasses import dataclass, asdict
 
 from model import NanoGPT, GPTConfig
@@ -19,6 +20,7 @@ class TrainState:
     cfg: GPTConfig
     start_epoch: int
     glob_step: int
+    samples_seen: int = 0
 
 @dataclass(frozen = True)
 class EvalResult:
@@ -37,16 +39,33 @@ def get_device() -> torch.device:
         return torch.device('mps')
     return torch.device('cpu')
 
+def configure_backends() -> None:
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+    return
+
+def amp_dtype(device: torch.device) -> torch.dtype|None:
+    if device.type == 'cuda' and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return None
+
+def autocast_ctx(device: torch.device, dtype: torch.dtype|None):
+    if dtype is None:
+        return nullcontext()
+    return torch.autocast(device_type = device.type, dtype = dtype)
+
 def build_gpt_config(vocab_size: int) -> GPTConfig:
     return GPTConfig(vocab_size = vocab_size, **asdict(MODEL))
 
-def save_checkpoint(model: NanoGPT, cfg: GPTConfig, optimizer: torch.optim.AdamW, epoch: int, glob_step: int, path: Path) -> None:
+def save_checkpoint(model: NanoGPT, cfg: GPTConfig, optimizer: torch.optim.AdamW, epoch: int, glob_step: int, path: Path, samples_seen: int = 0) -> None:
     payload = {
         'model': model.state_dict(),
         'optimizer': optimizer.state_dict(),
         'cfg': asdict(cfg),
         'epoch': epoch,
-        'glob_step': glob_step
+        'glob_step': glob_step,
+        'samples_seen': samples_seen
     }
     path.parent.mkdir(parents = True, exist_ok=True)
     temp = path.with_name(path.name + '.tmp')
@@ -77,14 +96,16 @@ def evaluate(model: NanoGPT, val_loader, device: torch.device, token_bytes: torc
     bytes_counts = 0
     if token_bytes is not None:
         token_bytes = token_bytes.to(device)
+    dtype = amp_dtype(device)
     with torch.no_grad():
         for batch in val_loader:
             input_ids = batch['input_ids'].to(device)
             labels = batch['labels'].to(device)
-            logits = model(input_ids)
+            with autocast_ctx(device, dtype):
+                logits = model(input_ids)
             B, T, V = logits.shape
             loss = F.cross_entropy(
-                logits.reshape(B * T, V),
+                logits.reshape(B * T, V).float(),
                 labels.reshape(B * T),
                 ignore_index= IGNORE_INDEX,
                 reduction = 'sum'
@@ -120,7 +141,8 @@ def load_or_init(ckpt_path: Path, vocab_size: int, device: torch.device, lr: flo
         optimizer.load_state_dict(checkpoint['optimizer'])
         start_epoch = checkpoint['epoch']
         glob_step = checkpoint['glob_step']
-        print(f'[resume]: epoch {start_epoch}/ step {glob_step}')
+        samples_seen = checkpoint.get('samples_seen', 0)
+        print(f'[resume]: epoch {start_epoch}/ step {glob_step} / {samples_seen} samples into the epoch')
     else:
         cfg = build_gpt_config(vocab_size)
         model = NanoGPT(cfg = cfg)
@@ -128,6 +150,7 @@ def load_or_init(ckpt_path: Path, vocab_size: int, device: torch.device, lr: flo
         optimizer = torch.optim.AdamW(model.parameters(), lr = lr)
         start_epoch = 0
         glob_step = 0
+        samples_seen = 0
         print(f'[new]: epoch {start_epoch}/ step {glob_step}')
 
     return TrainState(
@@ -135,7 +158,8 @@ def load_or_init(ckpt_path: Path, vocab_size: int, device: torch.device, lr: flo
         cfg = cfg,
         optimizer=optimizer,
         start_epoch = start_epoch,
-        glob_step=glob_step
+        glob_step=glob_step,
+        samples_seen=samples_seen
     )
 
 def load_model(ckpt_path: Path, vocab_size: int, device: torch.device) -> tuple[NanoGPT, GPTConfig]:

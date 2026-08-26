@@ -165,10 +165,24 @@ dojo/              practice floor: rewrite the whole thing from memory, to find 
 
 **Next**:
 
-1. Step-interval checkpointing (currently only at epoch end, and one epoch is ~350k steps — an interruption loses everything)
-2. bf16 autocast and gradient accumulation (currently fp32 on a single device, which will not finish 6B tokens)
-3. Optimizer parameter grouping (currently AdamW defaults, which applies weight decay to RMSNorm weights too)
-4. Actually run the first full pretraining
+1. Optimizer parameter grouping (currently AdamW defaults, which applies weight decay to RMSNorm weights too)
+2. `torch.compile` for the training step
+3. Actually run the first full pretraining
+
+## Pretraining throughput
+
+One epoch is 5.75B tokens at 524,288 tokens per optimizer step, so 10,967 steps. Forward plus backward costs 0.906 GFLOPs/token including attention, which puts one epoch at **5.21 EFLOPs**.
+
+| Configuration | Effective | One epoch on a single A100 |
+| --- | --- | --- |
+| fp32, no autocast | ~8 TFLOPS | ~7.5 days |
+| TF32 only | ~45 TFLOPS | ~32 hours |
+| **bf16 autocast (default on A100)** | ~95 TFLOPS | **~15 hours** |
+| bf16 + `torch.compile` | ~130 TFLOPS | ~11 hours |
+
+The MFU assumptions are calibrated against nanochat's published speedrun (560M params, 11.2B tokens, 4 hours on 8xH100 works out to 33% MFU); the bf16 row here is 30% of an A100's 312 TFLOPS peak.
+
+bf16 autocast turns on automatically when CUDA reports bf16 support, and TF32 is enabled alongside it. On MPS and CPU the run stays in fp32. Checkpoints are written every 250 steps (2.3% of an epoch) and resume mid-epoch: the checkpoint records how many samples of the current epoch were consumed, and `ResumableSampler` replays the same seeded permutation and skips exactly that many.
 
 ## References
 

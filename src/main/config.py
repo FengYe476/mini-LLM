@@ -72,10 +72,14 @@ class ModelConfig:
 
 @dataclass(frozen = True)
 class PretrainConfig:
-    batch_size: int = 16
+    micro_batch_size: int = 16
+    tokens_per_step: int = 524_288
+    num_workers: int = 8
+    shuffle_seed: int = 1234
     epoches_per_run: int = 1
     lr: float = 1e-3
     eval_every: int = 200
+    save_every: int = 250
     total_tokens: int = 6_000_000_000
     warmup_ratio: float = 0.01
     min_lr_ratio: float = 0.1
@@ -83,8 +87,14 @@ class PretrainConfig:
     shard_tokens: int = 50_000_000
     val_tokens: int = 2_000_000
 
-    def schedule(self, block_size: int) -> tuple[int, int]:
-        total_steps = max(2, self.total_tokens // (self.batch_size * block_size))
+    def grad_accum(self, block_size: int) -> int:
+        micro_tokens = self.micro_batch_size * block_size
+        if self.tokens_per_step % micro_tokens != 0:
+            raise ValueError(f'[schedule]: tokens_per_step({self.tokens_per_step}) must be a multiple of micro_batch_size * block_size({micro_tokens}), otherwise every optimizer step would see a different number of tokens than the schedule assumes')
+        return self.tokens_per_step // micro_tokens
+
+    def schedule(self) -> tuple[int, int]:
+        total_steps = max(2, self.total_tokens // self.tokens_per_step)
         warmup_steps = max(1, min(int(total_steps * self.warmup_ratio), total_steps - 1))
         return total_steps, warmup_steps
 

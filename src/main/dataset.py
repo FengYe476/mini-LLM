@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import json
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from pathlib import Path
 from typing import Any, Sequence, Iterator
 
@@ -172,6 +172,31 @@ class ShardedPretrainDataset(Dataset):
             'input_ids': torch.from_numpy(window[:-1]),
             'labels': torch.from_numpy(window[1:])
         }
+
+class ResumableSampler(Sampler):
+    def __init__(self, n_samples: int, seed: int, epoch: int = 0, skip: int = 0) -> None:
+        if n_samples < 1:
+            raise ValueError(f'[sampler]: n_samples({n_samples}) must be >= 1')
+        self.n_samples = n_samples
+        self.seed = seed
+        self.set_epoch(epoch, skip)
+        return
+
+    def set_epoch(self, epoch: int, skip: int = 0) -> None:
+        if not 0 <= skip <= self.n_samples:
+            raise ValueError(f'[sampler]: skip({skip}) must be in [0, {self.n_samples}]; a checkpoint from a different shard set would land here')
+        self.epoch = epoch
+        self.skip = skip
+        return
+
+    def __len__(self) -> int:
+        return self.n_samples - self.skip
+
+    def __iter__(self) -> Iterator[int]:
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+        order = torch.randperm(self.n_samples, generator = generator).tolist()
+        return iter(order[self.skip:])
 
 class ShardWriter:
     def __init__(self, shard_dir: str|Path, shard_tokens: int, prefix: str = 'train') -> None:
