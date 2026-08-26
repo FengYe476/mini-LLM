@@ -1,0 +1,33 @@
+# ---- 环境 ----
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# ---- 语料与分片（22 GB 原始语料 + 11 GB token 分片，绝不入库）----
+# 注意：这里必须用 **/data/ 前缀。写成 data/* 只会锚定仓库根目录，
+# 而真正的大文件在 src/main/data/ 下 —— 曾经差一点就 git add 上去 33 GB。
+**/data/corpus/
+**/data/corpus_smoke/
+**/data/.corpus_work/
+**/data/shards/
+
+# ---- 权重与二进制中间产物 ----
+*.pt
+*.bin
+*.ckpt
+*.bak
+*.tmp
+
+# ---- 重复文件（input.txt 与 tinyshakespeare.txt 逐字节相同）----
+**/data/input.txt
+
+# ---- 实验记录 ----
+wandb/
+runs/
+
+# ---- 明确保留（体积小，且是复现所必需）----
+# src/main/data/tok.json          465 KB  训练好的分词器，让 tokenizer 基准测试开箱即跑
+# src/main/data/sft_toy.jsonl     1.4 KB  SFT 演示数据
+# src/main/data/tinyshakespeare.txt 1.1 MB 冒烟测试语料
+# src/main/prepare.log            2.7 KB  6B token 语料构建的实测配比报告

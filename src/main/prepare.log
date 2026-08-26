@@ -1,0 +1,36 @@
+[tokenizer]: training a new tokenizer, target vocab 24576 (24274 merges)
+[tokenizer]: code_issues        pool     20000293 chars -> sampled    2000000 chars in 40 segments
+[tokenizer]: code_python        pool     40007577 chars -> sampled    4000000 chars in 80 segments
+[tokenizer]: code_shell         pool     10000698 chars -> sampled    1000000 chars in 20 segments
+[tokenizer]: cosmopedia         pool      4000949 chars -> sampled     400000 chars in 8 segments
+[tokenizer]: qa_stackexchange   pool      5000654 chars -> sampled     500000 chars in 10 segments
+[tokenizer]: terminal_docs      pool      5005232 chars -> sampled     500000 chars in 10 segments
+[tokenizer]: web_dclm           pool      6000692 chars -> sampled     600000 chars in 12 segments
+[tokenizer]: web_edu            pool     10002696 chars -> sampled    1000000 chars in 20 segments
+[tokenizer]: training on 10000007 chars, this is the slow part.....
+[tokenizer]: done in 1950.5s, vocab 24576
+
+[train]: 5750197205 tokens / 6087341 documents / 116 shards
+  domain                 target   actual     diff        tokens      docs
+  code_issues            10.00%   10.57%   +0.57pp     607520335    705401
+  code_python            20.00%   20.33%   +0.33pp    1169248539    850500
+  code_shell              5.00%    5.93%   +0.93pp     341165133    566470
+  cosmopedia             12.00%   10.64%   -1.36pp     611920834    746077
+  qa_stackexchange       15.00%   16.60%   +1.60pp     954329160   1582927
+  terminal_docs           3.00%    0.12%   -2.88pp       7003173      9183
+  web_dclm               15.00%   15.63%   +0.63pp     898575463    640388
+  web_edu                20.00%   20.18%   +0.18pp    1160434568    986395
+  [warning]: these domains ran out of documents and dragged the mix off target: ['code_issues', 'code_python', 'code_shell', 'cosmopedia', 'qa_stackexchange', 'terminal_docs', 'web_dclm', 'web_edu']
+
+[val]: 2001461 tokens / 2264 documents / 1 shards
+  domain                 target   actual     diff        tokens      docs
+  code_issues            10.00%    9.97%   -0.03pp        199554       241
+  code_python            20.00%   20.20%   +0.20pp        404322       298
+  code_shell              5.00%    5.05%   +0.05pp        101136       212
+  cosmopedia             12.00%   11.94%   -0.06pp        239026       284
+  qa_stackexchange       15.00%   14.90%   -0.10pp        298129       530
+  terminal_docs           3.00%    2.98%   -0.02pp         59610       106
+  web_dclm               15.00%   14.94%   -0.06pp        299110       201
+  web_edu                20.00%   20.01%   +0.01pp        400574       392
+
+[prepare]: done in 19770.5s -> data/shards
