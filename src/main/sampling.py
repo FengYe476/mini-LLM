@@ -92,7 +92,7 @@ def main() -> None:
     print(f'\n=== sft | chat ===')
     answer = chat(sft_model, sft_cfg, tokenizer, messages, max_new_tokens = 100)
     print(f'answer  : {answer!r}')
-    print(f'token数 : {len(tokenizer.encode(answer))} (小于100 = 自己吐了 assistant_end 停住了)')
+    print(f'tokens  : {len(tokenizer.encode(answer))} (under 100 = it emitted assistant_end and stopped on its own)')
     return
 
 if __name__ == '__main__':
