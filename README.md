@@ -86,6 +86,39 @@ python3 sampling.py
 
 The trained tokenizer ships with the repository (`src/main/data/tok.json`), so the throughput benchmark above reproduces without downloading any corpus.
 
+## Using the base model
+
+The pretrained weights are published separately (they are 529 MB, over what belongs in git). `export_model.py` is what produces them — it strips the AdamW state out of a training checkpoint, which is two thirds of its size and useless for anything but resuming pretraining:
+
+```bash
+python3 export_model.py --ckpt data/pretrain_checkpoint.pt --out mini-llm-base.pt
+```
+
+The exported payload carries the config, the vocab size, and a sha256 fingerprint of the tokenizer it was trained with, so a mismatched `tok.json` is refused rather than silently producing garbage.
+
+To fine-tune on your own conversations:
+
+```bash
+python3 train.py --data your_data.jsonl --base mini-llm-base.pt --out sft.pt
+```
+
+One conversation per line:
+
+```json
+{"messages": [{"role": "user", "content": "what is python"}, {"role": "assistant", "content": "a programming language"}]}
+```
+
+Roles are `system`, `user`, `assistant`, `tool`. Only assistant spans are supervised. Tool calls use the same `tool_calls` / `tool_call_id` shape as the OpenAI API; see `data/sft_toy.jsonl` for a worked example including a `run_bash` call.
+
+**Know these limits before pointing it at a real dataset.** The SFT loop is deliberately minimal and has none of the machinery `pretrain.py` grew:
+
+- fp32 only — no bf16 autocast, so it is several times slower than it needs to be on an A100 or H100
+- `batch_size = 2` and no gradient accumulation
+- checkpoints written only at epoch end
+- `SFTConfig` is tuned for the 6-conversation toy file; `total_steps` and `epoches_per_run` need changing for real data
+
+And one that bites silently: **a conversation longer than 1024 tokens is truncated to its tail.** `render_conversation` keeps the bos token and the last 1023, so the system prompt and the original task scroll out of the window while training proceeds without complaint. Agent trajectories are the common case here — a SWE-bench style trace runs 40k+ tokens, of which this model can see 2%.
+
 ## Pipeline
 
 ```

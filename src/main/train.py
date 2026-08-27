@@ -1,3 +1,4 @@
+import argparse
 import torch
 import torch.nn.functional as F
 import json
@@ -16,20 +17,35 @@ def get_tokenizer() -> Tokenizer:
     return Tokenizer.load(PATHS.tok)
 
 def get_conversation(p: Path) -> list:
+    if not p.exists():
+        raise FileNotFoundError(f'[sft data]: {p} does not exist; pass --data with a jsonl file where every line is {{"messages": [...]}}')
     conversation = []
     with open(p, errors = 'replace', encoding = 'utf-8') as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            conversation.append(json.loads(line)['messages'])
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as e:
+                raise ValueError(f'[sft data]: {p}:{lineno} is not valid JSON: {e}')
+            messages = record.get('messages')
+            if not isinstance(messages, list) or not messages:
+                raise ValueError(f'[sft data]: {p}:{lineno} has no non-empty "messages" list, keys are {sorted(record)}')
+            conversation.append(messages)
     return conversation
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description = 'supervised fine-tuning on top of a base model')
+    parser.add_argument('--data', default = str(PATHS.sft_data), help = 'jsonl file, one {"messages": [...]} per line')
+    parser.add_argument('--base', default = str(PATHS.pretrain_ckpt), help = 'base weights, either a pretraining checkpoint or an export_model.py artifact')
+    parser.add_argument('--out', default = str(PATHS.sft_ckpt))
+    args = parser.parse_args()
+
     device = get_device()
     tokenizer = get_tokenizer()
     token_bytes = build_token_bytes(tokenizer)
-    conversation = get_conversation(PATHS.sft_data)
+    conversation = get_conversation(Path(args.data))
     if len(conversation) < 2:
         raise ValueError(f'[length error]: SFT needs at least 2 conversations (got {len(conversation)}): 1 for training and 1 for validation')
     train_conversation = conversation[:-1]
@@ -38,7 +54,7 @@ def main() -> None:
     val_ds = SFTDataset(val_conversation, tokenizer, MODEL.block_size)
     train_loader = DataLoader(train_ds, batch_size = SFT.batch_size, shuffle = True, collate_fn=sft_collate)
     val_loader = DataLoader(val_ds, batch_size = SFT.batch_size, shuffle = False, collate_fn=sft_collate)
-    state = load_for_sft(PATHS.sft_ckpt, PATHS.pretrain_ckpt, tokenizer.vocab_size, device, SFT.lr)
+    state = load_for_sft(Path(args.out), Path(args.base), tokenizer.vocab_size, device, SFT.lr)
     cfg = state.cfg
     model = state.model
     optimizer = state.optimizer
@@ -69,10 +85,10 @@ def main() -> None:
             if glob_step % SFT.eval_every == 0:
                 res = evaluate(model, val_loader, device, token_bytes)
                 print(f'epoch {epoch:>4} | step {glob_step:>6} | lr {lr:.2e} | train loss = {loss.item():.4f} | val loss = {res.loss:.4f} | bpb = {res.bpb:.4f}')
-        res = evaluate(model, val_loader, device)
+        res = evaluate(model, val_loader, device, token_bytes)
         print(f'[epoch end] epoch {epoch:>4} | step {glob_step:>6}| train loss = {loss.item():.4f} | val loss = {res.loss:.4f} | bpb = {res.bpb:.4f}')
         
-        save_checkpoint(model, cfg, optimizer, epoch + 1, glob_step, PATHS.sft_ckpt)
+        save_checkpoint(model, cfg, optimizer, epoch + 1, glob_step, Path(args.out))
 
     return
 
