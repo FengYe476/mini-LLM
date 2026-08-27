@@ -6,6 +6,13 @@ Tokenizer, corpus pipeline, Transformer, pretraining, SFT, sampling — 1,790 li
 
 This is a **learning repository**. It is for someone who has read how transformers work and now wants to watch every piece get built: how bytes become tokens, how 22 GB of text becomes a training stream, why attention needs a mask, what a KV cache actually caches, and what it feels like when 5.75 billion tokens go through a model you wrote yourself.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
+  <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
+</picture>
+
+That is the real run: 5.75B tokens, 7.4 hours, one GPU, final validation loss 2.2933 and 0.8523 bits per byte. The two curves sit on top of each other the whole way, which is what a single epoch looks like — every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange jitter is not instability; it is one micro-batch's loss against the blue line's full validation split. Regenerate the plot from any log with `tools/plot_loss.py`.
+
 ## Why start here instead of nanochat
 
 [nanochat](https://github.com/karpathy/nanochat) is the better project. It is more complete, better optimized, and written by someone who has done this many times. If you are comfortable reading it, read it.
@@ -242,16 +249,7 @@ src/main/
 
 ## The first pretraining run
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
-  <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
-</picture>
-
-The two curves sit on top of each other for the entire run, which is what a single epoch looks like: every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange line's jitter is not instability — it is one micro-batch's loss, while the blue line is the full validation split.
-
-Regenerate it from any training log with `python3 tools/plot_loss.py --log train.log --out-dir ../../docs`.
-
-One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM.
+One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM. The curve is at the top of this README.
 
 | | |
 | --- | --- |
