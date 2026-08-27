@@ -1,15 +1,42 @@
 # mini-LLM
 
-An LLM training pipeline written from scratch: tokenizer, corpus pipeline, Transformer, pretraining, SFT, sampling. Apart from PyTorch tensor ops, not a single line comes from `transformers` or `tiktoken`.
+**A complete LLM built from scratch, small enough to read in an afternoon and cheap enough to actually run.**
 
-The code itself is not the hard part. The hard part is that **almost nothing on this path fails loudly**:
+Tokenizer, corpus pipeline, Transformer, pretraining, SFT, sampling — 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. The 132M base model in here was trained end to end on one GPU for 7.4 hours.
 
-- Break the KV cache → no crash, it just silently generates garbage, and you will misdiagnose it as "the model is dumb" rather than "inference is broken"
-- Read one token short at a shard boundary → no crash, the tail of every shard just silently disappears
-- Break a tokenizer optimization → no crash, the compression ratio just collapses and `    return 1` goes from 4 tokens to 10
-- Swap the tokenizer but keep the old shards → no crash, every token id just means something different now
+This is a **learning repository**. It is for someone who has read how transformers work and now wants to watch every piece get built: how bytes become tokens, how 22 GB of text becomes a training stream, why attention needs a mask, what a KV cache actually caches, and what it feels like when 5.75 billion tokens go through a model you wrote yourself.
 
-So what this repository is really about is not "I implemented a Transformer". It is that **every one of those silent failures has a test standing guard over it**. Currently 26/26 passing.
+## Why start here instead of nanochat
+
+[nanochat](https://github.com/karpathy/nanochat) is the better project. It is more complete, better optimized, and written by someone who has done this many times. If you are comfortable reading it, read it.
+
+This repository is a gentler on-ramp to the same understanding:
+
+| | mini-LLM | nanochat |
+| --- | --- | --- |
+| Hardware for a full run | **1 GPU** | an 8×H100 node |
+| Wall clock / cost | 7.4 h / ~$25 | ~1.5 h / ~$48 (~$15 spot) |
+| Core modules | **10** | ~35 |
+| Distributed training code | **none** | DDP / torchrun |
+| Stages covered | tokenizer → pretrain → SFT → sampling | also midtraining, RL, eval harness |
+
+Two of those rows matter more than the rest.
+
+**One GPU, not eight.** Renting a single H100 is something you can do on a whim; an 8-GPU node is a different kind of decision. More importantly, the training loop has no `torchrun`, no DDP, no rank juggling — `pretrain.py` is 122 lines of ordinary PyTorch you can read top to bottom without first learning distributed primitives.
+
+**Ten modules, not thirty-five.** nanochat earns its size by covering RL and a real evaluation harness. That is more to hold in your head at once. Here the whole pipeline fits in `model.py` (197 lines), `tokenizer.py` (341), `dataset.py` (366), `common.py` (234), and `pretrain.py` (122).
+
+nanochat's own answer for laptops is to shrink the model until it fits — "you will not get strong results in this way," as its README puts it. That is the right call for its scale. Here the same code that runs a smoke test on a MacBook's MPS backend is the code that ran the real 5.75B-token job, with a single `bf16` branch between them.
+
+## What makes it a teaching repository
+
+**Everything is hand-written and short enough to modify.** The BPE trainer is a readable merge loop, not a binding to a fast library. When you want to know what changes if the regex pre-split is wrong, you can just break it and look.
+
+**The engineering decisions are shown, not assumed.** The tokenizer went from 7 KB/s to 6.78 MB/s in three steps; the write-up below walks through each one and, more usefully, through how each was proven not to have broken anything.
+
+**The failure modes are documented as tests.** Almost nothing on this path fails loudly — break the KV cache and it silently generates garbage you will misdiagnose as "the model is dumb"; read one token short at a shard boundary and the tail of every shard quietly disappears; swap the tokenizer but keep the old shards and every token id means something different, with no error anywhere. There are 26 tests, each named for the specific silent failure it guards, and reading them is a fast way to learn where this kind of code actually goes wrong. All 26 pass.
+
+**There is one real run, honestly reported.** Not a projection — an actual 7.4-hour job with its throughput, its final bits-per-byte, the corpus mix it really trained on (which missed its target), and the 20% MFU that says the GPU was underused.
 
 ---
 
@@ -118,6 +145,21 @@ Roles are `system`, `user`, `assistant`, `tool`. Only assistant spans are superv
 - `SFTConfig` is tuned for the 6-conversation toy file; `total_steps` and `epoches_per_run` need changing for real data
 
 And one that bites silently: **a conversation longer than 1024 tokens is truncated to its tail.** `render_conversation` keeps the bos token and the last 1023, so the system prompt and the original task scroll out of the window while training proceeds without complaint. Agent trajectories are the common case here — a SWE-bench style trace runs 40k+ tokens, of which this model can see 2%.
+
+## A reading order
+
+If you are here to learn, read the code in the order the data moves through it. Each step is small enough to finish in one sitting, and each has tests you can break on purpose to see what they catch.
+
+1. **`tokenizer.py`** — start at `train()` and `_encode_word()`. Bytes become tokens here, and it is the only stage with no neural network in it, so nothing is hidden behind a matrix multiply. Break the regex in `SPLIT_PATTERN` and watch T18 fail.
+2. **`dataset.py`** — `PretrainDataset` first (18 lines, and it shows what a training example *is*: a window of tokens, and the same window shifted by one), then `ShardedPretrainDataset` for how that works when the data does not fit in memory.
+3. **`model.py`** — 197 lines, bottom-up: `MLP` → `MultiAttention` → `Block` → `NanoGPT`. The whole transformer is here, including RoPE and the KV cache.
+4. **`pretrain.py`** — 122 lines. The training loop: forward, loss, backward, clip, step. Everything else in the file is bookkeeping.
+5. **`sampling.py`** — how a trained model produces text, and why the KV cache makes it fast.
+6. **`test.py`** — read this last, as a list of the mistakes the code above is defending against.
+
+`common.py` and `config.py` are plumbing; read them when something in the list above references them.
+
+The fastest way to build intuition is step 1 combined with step 6: run `python3 test.py`, then deliberately break something in `tokenizer.py`, and see which test turns red and what it says.
 
 ## Pipeline
 
