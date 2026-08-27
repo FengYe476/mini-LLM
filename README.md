@@ -158,13 +158,35 @@ dojo/              practice floor: rewrite the whole thing from memory, to find 
 
 ## Where this actually stands
 
-**Done**: tokenizer, corpus pipeline (5.75B tokens ready), Transformer, and the full pretraining / SFT / sampling code. 26/26 tests passing.
+**Done**: tokenizer, corpus pipeline, Transformer, and the full pretraining / SFT / sampling code. 26/26 tests passing. **The 132M base model has been pretrained** — one full epoch over all 5.75B tokens, on a single H100.
 
-**Not done — do not misread the above**:
+**Not done**:
 
-- The production configuration (132M) **has never been trained**. There are no usable base weights in this repository, only records from an early tinyshakespeare toy model (4 layers / 256 wide).
 - `main.py` and `agent.py` are empty files. The tokenizer reserves `<|tool_call_start|>` and friends, but the tool-calling runtime and chat CLI are not written yet.
-- No midtraining / RL / evaluation suite (the CORE, GSM8K tier).
+- No SFT run yet on the new base model, and no midtraining / RL / evaluation suite (the CORE, GSM8K tier).
+- The base weights are not in this repository (1.59 GB, over GitHub's limits).
+
+## The first pretraining run
+
+One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM.
+
+| | |
+| --- | --- |
+| Wall clock | 7.4 hours |
+| Throughput | 2.44 s/step, 215k tokens/s, ~20% MFU |
+| Final val loss | 2.2933 |
+| **Final val bpb** | **0.8523** |
+| Checkpoint | 1.59 GB (model + AdamW state) |
+
+Validation bits-per-byte over the run:
+
+| step | 200 | 1200 | 2400 | 4800 | 8000 | 10967 |
+| --- | --- | --- | --- | --- | --- | --- |
+| val bpb | 1.569 | 1.053 | 0.973 | 0.912 | 0.871 | **0.852** |
+
+Validation loss fell monotonically at every one of the 54 evaluation points and stayed within 0.03 of the training loss throughout — expected, since a single epoch shows each token exactly once. bpb is measured on this repository's own domain mix, which is 40% code and therefore more predictable than prose; it is not comparable to bpb published against WikiText or C4.
+
+At ~20% MFU the H100 was underused. The likely culprits are the absence of `torch.compile` and the size of the logits tensor over a 24,576-entry vocabulary. Both are on the list above.
 
 **Next**:
 
