@@ -228,7 +228,6 @@ src/main/
 ├── config.py      every hyperparameter
 ├── test.py        26 consistency tests
 └── tools/         corpus download and verification
-dojo/              practice floor: rewrite the whole thing from memory, to find out which designs were actually understood
 ```
 
 ## Where this actually stands
