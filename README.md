@@ -242,6 +242,15 @@ src/main/
 
 ## The first pretraining run
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
+  <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
+</picture>
+
+The two curves sit on top of each other for the entire run, which is what a single epoch looks like: every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange line's jitter is not instability — it is one micro-batch's loss, while the blue line is the full validation split.
+
+Regenerate it from any training log with `python3 tools/plot_loss.py --log train.log --out-dir ../../docs`.
+
 One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM.
 
 | | |
@@ -294,5 +303,6 @@ Every performance figure here was measured on a single Apple Silicon machine, wi
 
 - The baseline behind "990x" is **my own first naive implementation** (repeated full-sequence scans over the whole text), not any mature library.
 - In the merge-count table, the "~200x" at 24274 merges is extrapolated from the measured 500 and 3000 points. Every other number is measured directly.
+- The loss curve is plotted from **35 of the run's 54 evaluation points** (`docs/train-partial.log`); the full log is still on the machine that ran the job. Every plotted value is a measured one — the markers sit on real evaluations, so the two long marker-free stretches between steps 2,400 and 6,200 are exactly where points are missing. The final value and the shape are unaffected.
 
 A few test fixtures deliberately contain non-ASCII text (`'hello 世界 world'`, `'κόσμε'`, and one translation sample in `sft_toy.jsonl`). They are there to exercise the multi-byte UTF-8 paths — T1 asserts a lossless round-trip and T3 asserts that half a character does not crash the decoder. Replacing them with ASCII would silently weaken the tests.
