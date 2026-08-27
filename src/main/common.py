@@ -173,7 +173,7 @@ def load_model(ckpt_path: Path, vocab_size: int, device: torch.device) -> tuple[
     model.to(device)
 
     model.eval()
-    print(f'[evaluation]: epoch {checkpoint['epoch']} | step {checkpoint["glob_step"]}')
+    print(f'[evaluation]: epoch {checkpoint["epoch"]} | step {checkpoint["glob_step"]}')
     return model, cfg
 
 
@@ -201,7 +201,7 @@ def load_for_sft(sft_ckpt_path: Path, base_ckpt_path: Path, vocab_size: int, dev
         optimizer = torch.optim.AdamW(model.parameters(), lr = lr)
         start_epoch = 0
         glob_step = 0
-        print(f'[sft from base]: base epoch: {checkpoint['epoch']} | base step {checkpoint['glob_step']}')
+        print(f'[sft from base]: base epoch: {checkpoint["epoch"]} | base step {checkpoint["glob_step"]}')
     else:
         raise FileNotFoundError(f'[file not found]: SFT must train from base, please pretrain at first and then give {base_ckpt_path}')
 
