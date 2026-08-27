@@ -49,10 +49,13 @@ Pure Python reaching 90% of a Rust implementation. The vocabulary is 4x smaller 
 | Raw text | 22 GB |
 | Train tokens | 5,750,197,205 (116 shards) |
 | Val tokens | 2,001,461 (1 shard) |
-| Mix deviation | ≤ 0.06 percentage points |
+| Mix deviation, val | ≤ 0.20 percentage points |
+| Mix deviation, train | ≤ 2.88 percentage points (see below) |
 | Build time | 5.5 hours |
 
-Domain mix: `web_edu` 20% / `code_python` 20% / `web_dclm` 15% / `qa_stackexchange` 15% / `cosmopedia` 12% / `code_issues` 10% / `code_shell` 5% / `terminal_docs` 3%
+Target mix: `web_edu` 20% / `code_python` 20% / `web_dclm` 15% / `qa_stackexchange` 15% / `cosmopedia` 12% / `code_issues` 10% / `code_shell` 5% / `terminal_docs` 3%
+
+The validation split hits that target within 0.20pp. The training split does not: every domain ran out of documents before reaching the 6B-token budget, so the mixer had to keep drawing from whatever was left. `terminal_docs` is the casualty — 0.12% actual against a 3% target, a 2.88pp shortfall — and `qa_stackexchange` absorbed most of the slack at 16.60% against 15%. The run below trains on that real mix, not the target one. Fixing it means collecting more `terminal_docs` and rebuilding the shards.
 
 **Model**
 
