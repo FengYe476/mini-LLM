@@ -1,17 +1,33 @@
 # mini-LLM
 
-**A complete LLM built from scratch, small enough to read in an afternoon and cheap enough to actually run.**
+**A learning record: building a modern language model from scratch, one technique at a time.**
 
-Tokenizer, corpus pipeline, Transformer, pretraining, SFT, sampling — 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. The 132M base model in here was trained end to end on one GPU for 7.4 hours.
+The goal was not to reimplement GPT-2. It was to build the architecture as it is actually written today — RoPE, KV caching, RMSNorm, SwiGLU — and to understand each piece well enough to write it myself, test it, and prove it correct rather than merely plausible.
 
-This is a **learning repository**. It is for someone who has read how transformers work and now wants to watch every piece get built: how bytes become tokens, how 22 GB of text becomes a training stream, why attention needs a mask, what a KV cache actually caches, and what it feels like when 5.75 billion tokens go through a model you wrote yourself.
+What that turned into: a 132M-parameter model in 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. It was pretrained for 7.4 hours on 5.75B tokens on a single GPU.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
   <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
 </picture>
 
-That is the real run: 5.75B tokens, 7.4 hours, one GPU, final validation loss 2.2933 and 0.8523 bits per byte. The two curves sit on top of each other the whole way, which is what a single epoch looks like — every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange jitter is not instability; it is one micro-batch's loss against the blue line's full validation split. Regenerate the plot from any log with `tools/plot_loss.py`.
+That is the real run: 5.75B tokens, 7.4 hours, one GPU, final validation loss 2.2933 and 0.8523 bits per byte. The two curves sit on top of each other the whole way, which is what a single epoch looks like — every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange jitter is not instability; it is one micro-batch's loss against the blue line's full validation split.
+
+## What I implemented, and what was hard about it
+
+Each of these is a few lines of code and a day of understanding. The line counts are small; the traps are not.
+
+**RoPE — rotary position embeddings** (`model.py:17-30`). Position is injected by rotating Q and K in 2D subspaces rather than adding a learned vector, so attention scores depend on *relative* distance. The part that took the longest was not the rotation — it was realizing the cache has to be indexed by absolute position: `rope_cos[pos:pos+T]` where `pos` comes from the KV cache. Get that offset wrong during generation and every token after the first is rotated as if it were at position 0. No error; the model just becomes incoherent past one token.
+
+**KV cache** (`model.py:32-36, 100-116`). Generation recomputes the whole prefix at every step unless you keep K and V around. Writing the cache is easy; the subtle line is `is_causal = (Q.size(2) == K.size(2))`. During cached decode `is_causal` is **False**, which looks like the causal mask has been switched off — it hasn't. With a single query at the end of the sequence, every cached key is already in its past, so masking is unnecessary and applying it would be wrong. T16 asserts the cached and uncached paths agree logit for logit, because a broken cache does not raise; it silently emits garbage you will blame on the model.
+
+**RMSNorm, SwiGLU, pre-norm residuals** (`model.py:58, 126-140`). The Llama-era stack rather than GPT-2's: normalize by root-mean-square with no mean subtraction and no bias, gate the feed-forward with `silu(gate(x)) * up(x)`, and normalize *before* each sublayer so the residual stream stays a clean identity path from embedding to output.
+
+**Weight tying and residual-scaled init** (`model.py:171-176`). `lm_head` shares the embedding matrix — 18.9M parameters saved, and the same vector means the same thing on the way in and out. Residual projections are initialized at `0.02 / sqrt(2 * n_layer)` so that summing 12 layers into one stream does not blow up its variance.
+
+**A BPE tokenizer that got 990× faster and compressed better** (`tokenizer.py`). The largest piece of engineering here and the part I learned the most from. Three steps: a regex pre-split so merges can never cross a word boundary, iterating the *word's* pairs instead of the whole merge table, and a word-level encode cache. The first step is the one that improves quality rather than just speed — without it `the` and ` quick` can fuse into one token and the vocabulary fills with cross-word garbage. The result reaches **3.81 chars/token, 92% of `cl100k_base`'s compression from a vocabulary a quarter the size** — and a smaller vocabulary means a cheaper embedding and lm_head. Encoding runs at 18.08 MB/s warm, against tiktoken's 20.03 MB/s in Rust. The full story, including the three bugs the equivalence tests caught, is below.
+
+**The training machinery that a real run needs** (`pretrain.py`, `common.py`, `dataset.py`) — gradient accumulation to a 524,288-token optimizer batch, bf16 autocast, cosine schedule with warmup, and mid-epoch resumable checkpoints. That last one is not glamorous, but a 7.4-hour run that can only checkpoint at the end is a 7.4-hour run you lose to one disconnection.
 
 ## Why start here instead of nanochat
 
@@ -35,13 +51,15 @@ Two of those rows matter more than the rest.
 
 nanochat's own answer for laptops is to shrink the model until it fits — "you will not get strong results in this way," as its README puts it. That is the right call for its scale. Here the same code that runs a smoke test on a MacBook's MPS backend is the code that ran the real 5.75B-token job, with a single `bf16` branch between them.
 
-## What makes it a teaching repository
+## How the record is kept
 
-**Everything is hand-written and short enough to modify.** The BPE trainer is a readable merge loop, not a binding to a fast library. When you want to know what changes if the regex pre-split is wrong, you can just break it and look.
+Writing the code was half of it. The other half was making sure I had actually understood it rather than merely got it running.
 
-**The engineering decisions are shown, not assumed.** The tokenizer went from 7 KB/s to 6.78 MB/s in three steps; the write-up below walks through each one and, more usefully, through how each was proven not to have broken anything.
+**Everything is hand-written and short enough to modify.** The BPE trainer is a readable merge loop, not a binding to a fast library. When I wanted to know what a wrong regex pre-split actually does, I could break it and look.
 
-**The failure modes are documented as tests.** Almost nothing on this path fails loudly — break the KV cache and it silently generates garbage you will misdiagnose as "the model is dumb"; read one token short at a shard boundary and the tail of every shard quietly disappears; swap the tokenizer but keep the old shards and every token id means something different, with no error anywhere. There are 26 tests, each named for the specific silent failure it guards, and reading them is a fast way to learn where this kind of code actually goes wrong. All 26 pass.
+**Every optimization ships with proof it changed nothing.** The tokenizer went from 7 KB/s to 6.78 MB/s in three steps, and each one is paired with a reference implementation too dumb to be wrong plus a test asserting the two agree token for token. "It got faster" and "it got faster and wrong" are indistinguishable in a log.
+
+**The failure modes are written down as tests.** Almost nothing on this path fails loudly — break the KV cache and it silently generates garbage you will misdiagnose as "the model is dumb"; read one token short at a shard boundary and the tail of every shard quietly disappears; swap the tokenizer but keep the old shards and every token id means something different, with no error anywhere. There are 26 tests, each named for the specific silent failure it guards, and reading them is a fast way to learn where this kind of code actually goes wrong. All 26 pass.
 
 **There is one real run, honestly reported.** Not a projection — an actual 7.4-hour job with its throughput, its final bits-per-byte, the corpus mix it really trained on (which missed its target), and the 20% MFU that says the GPU was underused.
 
@@ -185,17 +203,6 @@ train.py      base -> SFT (chat template + loss mask, only assistant spans are s
 
 sampling.py   temperature / top-k / KV cache / stop tokens
 ```
-
-## Model
-
-`src/main/model.py`. This is a Llama / nanochat era configuration, not vanilla GPT-2:
-
-- **RoPE** rotary position embeddings (`build_rope_cache` / `rotate_half` / `apply_rope`), with correct position offsets under KV caching
-- **RMSNorm** with **pre-norm** residuals
-- **SwiGLU** feed-forward (gate / up / down)
-- **Weight tying** between lm_head and the token embedding
-- **Residual-scaled init**: `0.02 / sqrt(2 * n_layer)`
-- **SDPA** attention plus a hand-written **KV cache**
 
 ## Testing: 26 silent failures
 
