@@ -13,21 +13,48 @@ What that turned into: a 132M-parameter model in 1,790 lines of Python across te
 
 That is the real run: 5.75B tokens, 7.4 hours, one GPU, final validation loss 2.2933 and 0.8523 bits per byte. The two curves sit on top of each other the whole way, which is what a single epoch looks like — every token is seen exactly once, so there is nothing to memorize and no gap to open. The orange jitter is not instability; it is one micro-batch's loss against the blue line's full validation split.
 
-## What I implemented, and what was hard about it
+## What this model implements
 
 Each of these is a few lines of code and a day of understanding. The line counts are small; the traps are not.
 
-**RoPE — rotary position embeddings** (`model.py:17-30`). Position is injected by rotating Q and K in 2D subspaces rather than adding a learned vector, so attention scores depend on *relative* distance. The part that took the longest was not the rotation — it was realizing the cache has to be indexed by absolute position: `rope_cos[pos:pos+T]` where `pos` comes from the KV cache. Get that offset wrong during generation and every token after the first is rotated as if it were at position 0. No error; the model just becomes incoherent past one token.
+### RoPE — rotary position embeddings &nbsp;·&nbsp; `model.py:17-30`
 
-**KV cache** (`model.py:32-36, 100-116`). Generation recomputes the whole prefix at every step unless you keep K and V around. Writing the cache is easy; the subtle line is `is_causal = (Q.size(2) == K.size(2))`. During cached decode `is_causal` is **False**, which looks like the causal mask has been switched off — it hasn't. With a single query at the end of the sequence, every cached key is already in its past, so masking is unnecessary and applying it would be wrong. T16 asserts the cached and uncached paths agree logit for logit, because a broken cache does not raise; it silently emits garbage you will blame on the model.
+- **What it does** — injects position by rotating Q and K within 2D subspaces, instead of adding a learned position vector, so attention scores depend on *relative* distance between tokens
+- **The hard part** — not the rotation itself, but that the cache must be indexed by *absolute* position: `rope_cos[pos:pos + T]`, where `pos` comes from the KV cache rather than from the current tensor
+- **If it is wrong** — no error. Every token after the first is rotated as if it sat at position 0, and generation degenerates a few tokens in
 
-**RMSNorm, SwiGLU, pre-norm residuals** (`model.py:58, 126-140`). The Llama-era stack rather than GPT-2's: normalize by root-mean-square with no mean subtraction and no bias, gate the feed-forward with `silu(gate(x)) * up(x)`, and normalize *before* each sublayer so the residual stream stays a clean identity path from embedding to output.
+### KV cache &nbsp;·&nbsp; `model.py:32-36, 100-116`
 
-**Weight tying and residual-scaled init** (`model.py:171-176`). `lm_head` shares the embedding matrix — 18.9M parameters saved, and the same vector means the same thing on the way in and out. Residual projections are initialized at `0.02 / sqrt(2 * n_layer)` so that summing 12 layers into one stream does not blow up its variance.
+- **What it does** — stores K and V per layer so each new token attends to the existing prefix instead of recomputing it, turning generation from quadratic into linear work
+- **The hard part** — the line `is_causal = (Q.size(2) == K.size(2))`. During cached decode this evaluates to **False**, which reads like the causal mask has been switched off. It has not: with a single query at the end of the sequence, every cached key is already in its past, so masking is unnecessary and applying it would be wrong
+- **If it is wrong** — no error. It silently emits garbage that looks like a weak model rather than broken inference. T16 pins the cached and uncached paths together, logit for logit
 
-**A BPE tokenizer that got 990× faster and compressed better** (`tokenizer.py`). The largest piece of engineering here and the part I learned the most from. Three steps: a regex pre-split so merges can never cross a word boundary, iterating the *word's* pairs instead of the whole merge table, and a word-level encode cache. The first step is the one that improves quality rather than just speed — without it `the` and ` quick` can fuse into one token and the vocabulary fills with cross-word garbage. The result reaches **3.81 chars/token, 92% of `cl100k_base`'s compression from a vocabulary a quarter the size** — and a smaller vocabulary means a cheaper embedding and lm_head. Encoding runs at 18.08 MB/s warm, against tiktoken's 20.03 MB/s in Rust. The full story, including the three bugs the equivalence tests caught, is below.
+### RMSNorm, SwiGLU, pre-norm residuals &nbsp;·&nbsp; `model.py:58, 126-140`
 
-**The training machinery that a real run needs** (`pretrain.py`, `common.py`, `dataset.py`) — gradient accumulation to a 524,288-token optimizer batch, bf16 autocast, cosine schedule with warmup, and mid-epoch resumable checkpoints. That last one is not glamorous, but a 7.4-hour run that can only checkpoint at the end is a 7.4-hour run you lose to one disconnection.
+- **RMSNorm** — normalizes by root-mean-square with no mean subtraction and no bias term, which is cheaper than LayerNorm and works as well in practice
+- **SwiGLU** — gates the feed-forward as `silu(gate(x)) * up(x)`, three matrices instead of two
+- **Pre-norm** — normalizes *before* each sublayer rather than after, leaving the residual stream a clean identity path from embedding to output
+- **Why these** — this is the Llama-era stack, not GPT-2's. Picking it was the point: the goal was the architecture as it is written today
+
+### Weight tying and residual-scaled init &nbsp;·&nbsp; `model.py:171-176`
+
+- **Weight tying** — `lm_head` shares the embedding matrix, saving 18.9M parameters and making one vector mean the same thing on the way in and on the way out
+- **Residual-scaled init** — residual projections start at `0.02 / sqrt(2 * n_layer)`, so summing 12 layers into one stream does not inflate its variance
+- **If it is wrong** — nothing raises. Training simply starts less stable than it should, which is invisible without a baseline to compare against
+
+### A BPE tokenizer, 990× faster and compressing better &nbsp;·&nbsp; `tokenizer.py`
+
+- **Regex pre-split** — merges can never cross a word boundary. This is the step that improves *quality*, not just speed: without it `the` and ` quick` can fuse and the vocabulary fills with cross-word garbage
+- **Iterate the word, not the table** — walk the ~10 pairs in the current word rather than all 24,274 merges. Same set, ~200× less work
+- **Word-level encode cache** — 93% hit rate on real code, capped at 100k entries because code corpora never converge on a fixed vocabulary
+- **Result** — **3.81 chars/token, 92% of `cl100k_base`'s compression from a quarter of its vocabulary**, and a smaller vocabulary means a cheaper embedding and lm_head. 18.08 MB/s warm against tiktoken's 20.03 MB/s in Rust
+
+### The machinery a real run needs &nbsp;·&nbsp; `pretrain.py`, `common.py`, `dataset.py`
+
+- **Gradient accumulation** — 32 micro-batches into one 524,288-token optimizer step, so the batch is large enough for the learning rate it is paired with
+- **bf16 autocast** — enabled only where CUDA reports bf16 support, leaving MPS and CPU runs in fp32 and unchanged
+- **Cosine schedule with warmup** — counted in optimizer steps, not micro-batches
+- **Mid-epoch resumable checkpoints** — the unglamorous one. A 7.4-hour run that can only checkpoint at the end is a 7.4-hour run you lose to a single disconnection
 
 ## Why start here instead of nanochat
 
