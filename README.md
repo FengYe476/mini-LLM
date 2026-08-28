@@ -202,10 +202,6 @@ Two epochs over 122,012 conversations, 15,252 steps, on the same H100.
 
 The agent half came from 1,808 SWE-bench and Terminal-Bench trials, of which 1,329 scored `reward=1`. Those trajectories run 40,861 tokens at the median against a 1024-token context, and their agent system prompt alone is 1,042 tokens — so `tools/build_agent_sft.py` swaps in a one-line prompt and emits one sample per assistant turn carrying the task plus the last six messages. That averages 1,007 tokens per sample at 48% supervised.
 
-The first answer is well-formed English about the wrong language: 132M parameters buy grammar, not facts. The second is the more interesting one — it reaches for `ls`, wraps it in a code block, and appends an explanation. That terminal reflex is the agent trajectories showing through, and it is the clearest evidence the windowing actually taught it something.
-
-One thing this run got wrong first: `SFTConfig` still carried the step counts tuned for the 6-conversation toy file, so the cosine schedule finished at step 150 while the data needed 15,252. The learning rate sat pinned at its floor for thousands of steps before it was caught. The README had warned about exactly this; writing the warning is not the same as heeding it.
-
 ## References and caveats
 
 - [karpathy/nanoGPT](https://github.com/karpathy/nanoGPT) and [karpathy/nanochat](https://github.com/karpathy/nanochat) — the latter is the main reference for architecture choices and chat template design.
