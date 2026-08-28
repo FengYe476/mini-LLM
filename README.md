@@ -74,7 +74,7 @@ self.lm_head.weight = self.embedding.token_embedding.weight
 residual_std = 0.02 / sqrt(2 * cfg.n_layer)
 ```
 
-## The tokenizer
+## 🏠 The tokenizer
 
 Byte-level BPE, 24,576 tokens = 256 bytes + 24,274 merges + 46 special tokens. Three changes took encoding from 7 KB/s to 6.78 MB/s.
 
@@ -124,9 +124,9 @@ The more interesting question is the next one: **what makes me confident A and B
 
 Renting one H100 is something you can do on a whim; an 8-GPU node is a different kind of decision. More to the point, `pretrain.py` is ordinary PyTorch with no `torchrun` and no rank juggling, readable top to bottom without first learning distributed primitives.
 
-- **A beginner can build their own GPT end to end** — ten readable modules, one GPU, and a single 7.4-hour run take you from raw bytes to a model that talks back.
-- **The tokenizer is 990× faster than the naive version** — a regex pre-split confines merges to single words, iterating the word's ~10 pairs instead of all 24,274 merges makes pair lookup ~200× cheaper, and a word-level cache hits 93% on real code.
-- **The KV cache is hand-written and pinned by a test** — it makes generation linear instead of quadratic, and T16 asserts it matches the uncached path logit for logit, because a broken cache raises nothing and just emits garbage.
+- **A beginner can build their own GPT end to end 🧑‍🎓** — ten readable modules, one GPU, and a single 7.4-hour run take you from raw bytes to a model that talks back.
+- **The tokenizer is 990× faster than the naive version🚀** — a regex pre-split confines merges to single words, iterating the word's ~10 pairs instead of all 24,274 merges makes pair lookup ~200× cheaper, and a word-level cache hits 93% on real code.
+- **The KV cache is hand-written and pinned by a test🏢** — it makes generation linear instead of quadratic, and T16 asserts it matches the uncached path logit for logit, because a broken cache raises nothing and just emits garbage.
 
 ## Quick start
 
@@ -201,26 +201,6 @@ Two epochs over 122,012 conversations, 15,252 steps, on the same H100.
 | Final val loss / bpb | **0.9610** / **0.5637** |
 
 The agent half came from 1,808 SWE-bench and Terminal-Bench trials, of which 1,329 scored `reward=1`. Those trajectories run 40,861 tokens at the median against a 1024-token context, and their agent system prompt alone is 1,042 tokens — so `tools/build_agent_sft.py` swaps in a one-line prompt and emits one sample per assistant turn carrying the task plus the last six messages. That averages 1,007 tokens per sample at 48% supervised.
-
-What comes out, sampled at temperature 0.7:
-
-```
-> what is python
-Pascal is a programming language that is used extensively to develop and test
-programming capabilities. It is commonly used in programming languages such as
-Java, JavaScript, and Ruby on Rails.
-
-> list the files in the current directory
-The current directory is the current directory:
-
-    $ ls
-
-The files in the current directory are:
-
-    $ ls /home/user/ 2>/dev/null
-
-Note: The `ls` command is used to list all files in the cu
-```
 
 The first answer is well-formed English about the wrong language: 132M parameters buy grammar, not facts. The second is the more interesting one — it reaches for `ls`, wraps it in a code block, and appends an explanation. That terminal reflex is the agent trajectories showing through, and it is the clearest evidence the windowing actually taught it something.
 
