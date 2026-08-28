@@ -17,38 +17,68 @@ Final validation loss **2.2933**, **0.8523 bits per byte**. The two curves sit o
 
 ## The model
 
-`model.py`, 197 lines. Decoder-only, 12 layers × 12 heads × 768 wide, 1024 context, 132.3M parameters.
+Decoder-only, 12 layers × 12 heads × 768 wide, 1024 context, 132.3M parameters.
 
-**RoPE — rotary position embeddings** (`model.py:17-30`)
-Position enters by rotating Q and K within 2D subspaces rather than adding a learned vector, so attention depends on *relative* distance. The hard part is not the rotation: the cache must be indexed by **absolute** position, `rope_cos[pos:pos + T]`, where `pos` comes from the KV cache. Get that offset wrong and there is no error — every token after the first is rotated as if it sat at position 0, and generation falls apart within a few tokens.
+**RoPE — rotary position embeddings.** Position enters by rotating Q and K rather than adding a learned vector, and the cache must be indexed by *absolute* position or generation falls apart after the first token.
 
-**KV cache** (`model.py:32-36, 100-116`)
-Stores K and V per layer so each new token attends to the existing prefix instead of recomputing it. The subtle line is `is_causal = (Q.size(2) == K.size(2))`, which evaluates to **False** during cached decode. That looks like the causal mask has been switched off; it hasn't. With a single query at the end of the sequence, every cached key is already in its past, so masking is unnecessary and applying it would be wrong. A broken cache raises nothing and silently emits garbage you would blame on the model, so T16 pins the cached and uncached paths together logit for logit.
+```python
+cos, sin = self.rope_cos[pos:pos + T], self.rope_sin[pos:pos + T]   # pos from the KV cache
+Q, K = apply_rope(Q, cos, sin), apply_rope(K, cos, sin)
+```
 
-**RMSNorm · SwiGLU · pre-norm** (`model.py:58, 126-140`)
-The Llama-era stack, not GPT-2's: normalize by root-mean-square with no mean subtraction and no bias; gate the feed-forward as `silu(gate(x)) * up(x)`; normalize *before* each sublayer so the residual stream stays a clean identity path from embedding to output.
+**KV cache.** Keeping K and V per layer makes generation linear instead of quadratic; the mask then correctly turns *off*, because a single query at the end of the sequence has every cached key already in its past.
 
-**Weight tying and residual-scaled init** (`model.py:171-176`)
-`lm_head` shares the embedding matrix — 18.9M parameters saved, and one vector means the same thing going in and coming out. Residual projections start at `0.02 / sqrt(2 * n_layer)` so summing 12 layers into one stream does not inflate its variance. Getting this wrong raises nothing either; training is just quietly less stable than it should be.
+```python
+is_causal = (Q.size(2) == K.size(2))          # False while decoding — and that is correct
+out = F.scaled_dot_product_attention(Q, K, V, is_causal = is_causal)
+```
+
+**SwiGLU feed-forward.** The gate multiplies a SiLU-activated branch against a linear one, three matrices where GPT-2 used two.
+
+```python
+x = F.silu(self.gate(x)) * self.up(x)
+x = self.fc2(x)
+```
+
+**Pre-norm residuals with RMSNorm.** Normalizing before each sublayer leaves the residual stream a clean identity path from embedding to output.
+
+```python
+x = x + self.attention(self.norm1(x), cache)
+x = x + self.mlp(self.norm2(x))
+```
+
+**Weight tying and residual-scaled init.** Sharing the embedding with `lm_head` saves 18.9M parameters, and shrinking the residual projections keeps 12 layers of summation from inflating the stream's variance.
+
+```python
+self.lm_head.weight = self.embedding.token_embedding.weight
+residual_std = 0.02 / sqrt(2 * cfg.n_layer)
+```
 
 ## The tokenizer
 
-`tokenizer.py`, 341 lines. Byte-level BPE, 24,576 tokens = 256 bytes + 24,274 merges + 46 special tokens.
+Byte-level BPE, 24,576 tokens = 256 bytes + 24,274 merges + 46 special tokens. Three changes took encoding from 7 KB/s to 6.78 MB/s.
 
-Start with a puzzle. BPE encoding needs to find which pairs can currently be merged, and these two lines produce exactly the same set:
+**Regex pre-split — the one that improves quality, not just speed.** Merges can never cross a word boundary, so `the` and ` quick` cannot fuse and the vocabulary never fills with cross-word garbage.
 
 ```python
-valid = [pair for pair in self.merges if pair in counts]   # A
-valid = [pair for pair in counts if pair in self.merges]   # B
+for word in SPLIT_PATTERN.findall(content):
+    ids.extend(self._encode_word(word))
 ```
 
-At production vocab size **B is roughly 200× faster**. `self.merges` holds 24,274 entries while `counts` is only as long as one word — about 10. Same intersection, three orders of magnitude less work, and the gap grows with the vocabulary: 9.4× at 500 merges, 28.6× at 3,000.
+**Iterate the word, not the merge table.** Both lines below select the same pairs, but one walks ~10 entries and the other walks 24,274 — roughly 200× apart at production vocab size.
 
-That is one of three steps that took encoding from 7 KB/s to 6.78 MB/s:
+```python
+valid_pair = [pair for pair in self.merges if pair in counts]   # A: walks 24,274
+valid_pair = [pair for pair in counts if pair in self.merges]   # B: walks ~10
+```
 
-1. **Regex pre-split** — merges can never cross a word boundary. This is the step that improves *quality*, not just speed: without it `the` and ` quick` can fuse and the vocabulary fills with cross-word garbage.
-2. **Iterate the word, not the merge table** — the puzzle above.
-3. **Word-level encode cache** — 93% hit rate on real code, capped at 100k entries because code corpora never converge on a fixed vocabulary (roughly 14k new unique words per MB, mostly one-off identifiers and hashes).
+**Word-level encode cache.** A word's encoding never depends on context, so it is computed once — 93% hit rate on real code, capped because code corpora never converge on a fixed vocabulary.
+
+```python
+cached = self.cache.get(word)
+if cached is not None:
+    return cached
+```
 
 | Implementation | Throughput | Compression |
 | --- | --- | --- |
@@ -72,7 +102,7 @@ The more interesting question is the next one: **what makes me confident A and B
 | Distributed training code | **none** | DDP / torchrun |
 | Stages covered | tokenizer → pretrain → SFT → sampling | also midtraining, RL, eval |
 
-Renting one H100 is something you can do on a whim; an 8-GPU node is a different kind of decision. More to the point, `pretrain.py` is 122 lines of ordinary PyTorch with no `torchrun` and no rank juggling, readable top to bottom without first learning distributed primitives.
+Renting one H100 is something you can do on a whim; an 8-GPU node is a different kind of decision. More to the point, `pretrain.py` is ordinary PyTorch with no `torchrun` and no rank juggling, readable top to bottom without first learning distributed primitives.
 
 ## Quick start
 
