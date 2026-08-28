@@ -1,5 +1,11 @@
 # 🧠 Building a Modern 130M Parameter Language Model from Scratch.
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch 2.4+](https://img.shields.io/badge/PyTorch-2.4+-ee4c2c.svg)](https://pytorch.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Weights on HF](https://img.shields.io/badge/%F0%9F%A4%97%20weights-mini--llm--132m-ffb300.svg)](https://huggingface.co/ye476/mini-llm-132m)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/FengYe476/mini-LLM)
+
 The goal was to build the mini architecture of Chatgpt as it is actually written today and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
 
 ## 🚀 Result
