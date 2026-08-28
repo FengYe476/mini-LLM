@@ -133,7 +133,14 @@ src/main/
 
 ## Fine-tuning on the base model
 
-`export_model.py` turns a training checkpoint into a distributable base model, dropping the AdamW state — two thirds of the file and useless for anything but resuming pretraining:
+**The trained weights are public:** [huggingface.co/ye476/mini-llm-132m](https://huggingface.co/ye476/mini-llm-132m)
+
+```python
+from huggingface_hub import hf_hub_download
+path = hf_hub_download('ye476/mini-llm-132m', 'mini-llm-sft.pt')   # or 'mini-llm-base.pt'
+```
+
+`export_model.py` is what produced them — it drops the AdamW state, two thirds of a training checkpoint and useless for anything but resuming pretraining:
 
 ```bash
 python3 export_model.py --ckpt data/pretrain_checkpoint.pt --out mini-llm-base.pt
@@ -153,7 +160,7 @@ One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM.
 | Corpus | 22 GB raw → 5,750,197,205 train tokens (116 shards) + 2,001,461 val |
 | Throughput | 2.44 s/step, 215k tokens/s, ~20% MFU |
 | Wall clock / cost | 7.4 hours / ~$25 |
-| Final val loss / bpb | **2.2933** / **0.8523** |
+| Final val loss / bpb | **2.2921** / **0.8518** |
 
 Machinery the run needed: gradient accumulation (32 micro-batches into one 524,288-token step), bf16 autocast where CUDA supports it, a cosine schedule counted in optimizer steps, and mid-epoch resumable checkpoints — the unglamorous one, since a 7.4-hour run that can only checkpoint at the end is a run you lose to a single disconnection.
 
