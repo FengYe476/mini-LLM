@@ -2,7 +2,7 @@
 
 **A learning record: building a modern language model from scratch, one technique at a time.**
 
-The goal was not to reimplement GPT-2 but to build the architecture as it is actually written today — RoPE, KV caching, RMSNorm, SwiGLU — and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
+The goal was to build the mini architecture of Chatgpt as it is actually written today — RoPE, KV caching, RMSNorm, SwiGLU — and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
 
 A 132M-parameter model in 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. Pretrained for 7.4 hours on 5.75B tokens on a single H100.
 
@@ -158,22 +158,6 @@ One epoch, 10,967 optimizer steps at 524,288 tokens each, on one H100 SXM.
 Machinery the run needed: gradient accumulation (32 micro-batches into one 524,288-token step), bf16 autocast where CUDA supports it, a cosine schedule counted in optimizer steps, and mid-epoch resumable checkpoints — the unglamorous one, since a 7.4-hour run that can only checkpoint at the end is a run you lose to a single disconnection.
 
 Validation loss fell at every one of the 54 evaluation points and tracked the training loss within 0.03 throughout. The curve fits a power law `L = 48.7·s^-0.596 + 2.12` with R² = 0.9978, and was still descending when the corpus ran out. At ~20% MFU the H100 was underused — most likely the missing `torch.compile` and the size of the logits tensor over a 24,576-entry vocabulary.
-
-**The corpus mix missed its target.** Every domain ran out of documents before the token budget was reached, so `terminal_docs` landed at 0.12% against a 3% target and `qa_stackexchange` absorbed the slack at 16.60% against 15%. The model trained on that real mix, not the intended one. The validation split, being small, hits its target within 0.20pp.
-
-## Tests
-
-26 consistency tests, all passing. Each is named for a specific silent failure it guards against — KV cache divergence (T16), cross-word merges (T18), weighted-vs-naive BPE training (T19), shard-boundary reads (T22), train/inference template drift (T12). Reading them is a fast way to see where this kind of code actually goes wrong.
-
-Three that were caught in practice: tokenizer training text taken from the head of the corpus, so `ROMEO` (163 occurrences in the full text, 0 in the head) got shredded into single letters; an encode cache that was read but never written; and a `zip` that silently truncated because `words` and `freqs` came from different sources.
-
-## Where this stands
-
-**Done** — tokenizer, corpus pipeline, Transformer, pretraining, SFT and sampling code, and one full pretraining run of the 132M model.
-
-**Not done** — `main.py` and `agent.py` are empty; the tokenizer reserves `<|tool_call_start|>` and friends but there is no tool-calling runtime or chat CLI. No SFT run on the new base model yet, and no midtraining, RL, or evaluation harness. The base weights are not in this repository (529 MB).
-
-**Next** — optimizer parameter grouping (AdamW defaults currently decay RMSNorm weights too), `torch.compile`, and a real SFT run.
 
 ## References and caveats
 
