@@ -104,7 +104,7 @@ if cached is not None:
 
 The more interesting question is the next one: **what makes me confident A and B are equivalent?** "It got faster" and "it got faster and wrong" look identical in a log. Every optimization here ships with a reference implementation too dumb to be wrong and a test asserting the two agree token for token. That caught three real bugs, including a cache that was read but never written — every result correct, every test green, and no speedup at all.
 
-## Why start here instead of nanochat
+## ➡️ Why mini-LLM？
 
 [nanochat](https://github.com/karpathy/nanochat) is the better project: more complete, better optimized, written by someone who has done this many times. This one is a gentler on-ramp to the same understanding.
 
