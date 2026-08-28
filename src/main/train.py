@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 
 from config import PATHS, MODEL, SFT
-from common import get_device, load_for_sft, evaluate, save_checkpoint, get_lr, build_token_bytes
+from common import get_device, configure_backends, amp_dtype, autocast_ctx, load_for_sft, evaluate, save_checkpoint, get_lr, build_token_bytes
 from dataset import SFTDataset, sft_collate, IGNORE_INDEX
 from tokenizer import Tokenizer
 
@@ -43,6 +43,8 @@ def main() -> None:
     args = parser.parse_args()
 
     device = get_device()
+    configure_backends()
+    dtype = amp_dtype(device)
     tokenizer = get_tokenizer()
     token_bytes = build_token_bytes(tokenizer)
     conversation = get_conversation(Path(args.data))
@@ -70,13 +72,14 @@ def main() -> None:
             for group in optimizer.param_groups:
                 group['lr'] = lr
             optimizer.zero_grad()
-            logits = model(input_ids)
-            B, T, V = logits.shape
-            loss = F.cross_entropy(
-                logits.reshape(B * T, V),
-                labels.reshape(B * T),
-                ignore_index=IGNORE_INDEX,
-            )
+            with autocast_ctx(device, dtype):
+                logits = model(input_ids)
+                B, T, V = logits.shape
+                loss = F.cross_entropy(
+                    logits.reshape(B * T, V),
+                    labels.reshape(B * T),
+                    ignore_index=IGNORE_INDEX,
+                )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), SFT.grad_clip)
             optimizer.step()
