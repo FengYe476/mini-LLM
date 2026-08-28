@@ -124,6 +124,10 @@ The more interesting question is the next one: **what makes me confident A and B
 
 Renting one H100 is something you can do on a whim; an 8-GPU node is a different kind of decision. More to the point, `pretrain.py` is ordinary PyTorch with no `torchrun` and no rank juggling, readable top to bottom without first learning distributed primitives.
 
+- **A beginner can build their own GPT end to end** — ten readable modules, one GPU, and a single 7.4-hour run take you from raw bytes to a model that talks back.
+- **The tokenizer is 990× faster than the naive version** — a regex pre-split confines merges to single words, iterating the word's ~10 pairs instead of all 24,274 merges makes pair lookup ~200× cheaper, and a word-level cache hits 93% on real code.
+- **The KV cache is hand-written and pinned by a test** — it makes generation linear instead of quadratic, and T16 asserts it matches the uncached path logit for logit, because a broken cache raises nothing and just emits garbage.
+
 ## Quick start
 
 ```bash
