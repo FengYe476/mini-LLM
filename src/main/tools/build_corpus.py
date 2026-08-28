@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build the nanoChat pretraining corpus.
 
 Single entry point. Streams text from pinned upstream sources, cleans it per a
@@ -29,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 SEED = 20260818
-MAX_FILE_BYTES = 480 * 1024 * 1024          # rotate well under the 512 MB ceiling
+MAX_FILE_BYTES = 480 * 1024 * 1024
 VAL_FRACTION = 0.005
 VAL_MIN, VAL_MAX = 200, 20000
 MIN_DOC_BYTES = 200
@@ -37,10 +36,6 @@ MIN_DOC_BYTES_TERMINAL = 50
 CHECKPOINT_EVERY_BYTES = 256 * 1024 * 1024
 CHECKPOINT_EVERY_SECONDS = 120.0
 MAX_SHARD_RETRIES = 6
-
-# --------------------------------------------------------------------------
-# source descriptions
-# --------------------------------------------------------------------------
 
 
 class SourceUnavailable(Exception):
@@ -86,8 +81,8 @@ class HTTPJsonlSource:
     url: str
     text_field: str
     license: str
-    repo: str                      # provenance of the URL list
-    revision: str                  # pinned revision of that list
+    repo: str
+    revision: str
     kind: str = "http_jsonl"
 
     def manifest(self) -> dict:
@@ -116,7 +111,7 @@ class Domain:
     name: str
     share: float
     bytes_per_token: float
-    slots: list            # each slot is a priority-ordered candidate list
+    slots: list
     min_doc_bytes: int = MIN_DOC_BYTES
 
     @property
@@ -124,7 +119,6 @@ class Domain:
         return [c for slot in self.slots for c in slot]
 
 
-# Revisions pinned 2026-08-18. Refresh deliberately, never implicitly.
 REV_FINEWEB_EDU = "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
 REV_DCLM = "a3b142c183aebe5af344955ae20836eb34dcf69b"
 REV_SMOLLM = "3ba9d605774198c5868892d7a8deda78031a781f"
@@ -144,8 +138,6 @@ DOMAINS: list[Domain] = [
         [HFSource("HuggingFaceTB/smollm-corpus", REV_SMOLLM, "text", "ODC-By-1.0",
                   config="cosmopedia-v2")],
     ]),
-    # Spec 3.1 priority order: stack-edu first, starcoderdata python second,
-    # and nothing else -- if neither works the domain stops and is reported.
     Domain("code_python", 0.20, 3.8, [
         [HFSource("HuggingFaceTB/stack-edu", REV_STACK_EDU, "text", "ODC-By-1.0",
                   config="Python"),
@@ -156,7 +148,6 @@ DOMAINS: list[Domain] = [
         [HFSource("bigcode/starcoderdata", REV_STARCODER, "content",
                   "other (BigCode OpenRAIL-M)", data_dir="shell")],
     ]),
-    # Two slots, so the target splits evenly between issues and commits.
     Domain("code_issues", 0.10, 3.8, [
         [HFSource("bigcode/starcoderdata", REV_STARCODER, "content",
                   "other (BigCode OpenRAIL-M)", data_dir="github-issues-filtered-structured")],
@@ -178,10 +169,6 @@ DOMAINS: list[Domain] = [
 DOMAINS_BY_NAME = {d.name: d for d in DOMAINS}
 
 
-# --------------------------------------------------------------------------
-# cleaning (spec 4 -- exactly these rules, in this order)
-# --------------------------------------------------------------------------
-
 DROP_REASONS = ("utf8", "too_short", "duplicate", "control_char")
 
 
@@ -189,13 +176,13 @@ def clean_document(raw: Any, min_bytes: int) -> tuple[Optional[str], Optional[st
     """Return (text, None) for a keeper, or (None, reason) for a drop."""
     if isinstance(raw, bytes):
         try:
-            text = raw.decode("utf-8")           # strict: no errors="replace"
+            text = raw.decode("utf-8")
         except UnicodeDecodeError:
             return None, "utf8"
     elif isinstance(raw, str):
         text = raw
         try:
-            text.encode("utf-8")                 # reject lone surrogates
+            text.encode("utf-8")
         except UnicodeEncodeError:
             return None, "utf8"
     else:
@@ -209,11 +196,6 @@ def clean_document(raw: Any, min_bytes: int) -> tuple[Optional[str], Optional[st
     if len(text.encode("utf-8")) < min_bytes:
         return None, "too_short"
     return text, None
-
-
-# --------------------------------------------------------------------------
-# output writing
-# --------------------------------------------------------------------------
 
 
 def _atomic_write_text(path: Path, data: str) -> None:
@@ -263,15 +245,12 @@ class RotatingWriter:
         path = self._tmp_path(self.index)
         if self.compress:
             import zstandard
-            # Truncation to a checkpoint offset is only meaningful on the raw
-            # stream, so each rotation is one independently framed zstd file.
             if self.cur_bytes and path.exists():
                 raise RuntimeError("cannot resume mid-file with --compress zstd")
             self._raw = open(path, "wb")
             self._fh = zstandard.ZstdCompressor(level=6).stream_writer(self._raw)
         else:
             if path.exists():
-                # roll back anything written after the last checkpoint
                 with open(path, "r+b") as fh:
                     fh.truncate(self.cur_bytes)
             else:
@@ -336,11 +315,6 @@ def json_line(text: str, source: str, doc_id: str) -> bytes:
     return (json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-# --------------------------------------------------------------------------
-# sources
-# --------------------------------------------------------------------------
-
-
 def _hf_stream(src: HFSource, cursor: dict, log: Callable[[str], None]) -> Iterator[tuple[Any, dict]]:
     """Yield (raw_text, cursor) from a HuggingFace dataset in streaming mode.
 
@@ -386,9 +360,6 @@ def _hf_stream(src: HFSource, cursor: dict, log: Callable[[str], None]) -> Itera
             ) from exc
         raise
 
-    # The declared text field must actually carry the text. Several upstream
-    # datasets ship only blob ids, and silently reaching for another column
-    # would change what the corpus is.
     probe = next(iter(ds.take(1)), None)
     if probe is None:
         raise SourceUnavailable(f"{src.repo} yielded no records", "Inspect the dataset on the Hub.")
@@ -457,7 +428,7 @@ def _http_jsonl_stream(src: HTTPJsonlSource, cursor: dict,
         headers = {"Range": f"bytes={offset}-"} if offset else {}
         try:
             resp = requests.get(src.url, headers=headers, stream=True, timeout=(30, 120))
-            if resp.status_code == 416:          # offset past EOF: source exhausted
+            if resp.status_code == 416:
                 return
             if offset and resp.status_code != 206:
                 raise SourceUnavailable(
@@ -616,11 +587,6 @@ def open_source(src, cursor: dict, log, work_dir: Path,
     raise TypeError(f"unknown source {src!r}")
 
 
-# --------------------------------------------------------------------------
-# per-domain build
-# --------------------------------------------------------------------------
-
-
 class DomainBuilder:
     def __init__(self, domain: Domain, out_root: Path, target_bytes: int,
                  compress: bool, work_dir: Path, log: Callable[[str], None]):
@@ -701,7 +667,6 @@ class DomainBuilder:
         merged.pop("finalized", None)
         return merged
 
-    # ---- persistence -----------------------------------------------------
 
     def _blank(self) -> dict:
         return {
@@ -782,8 +747,6 @@ class DomainBuilder:
                 and now - self._last_ckpt_time < CHECKPOINT_EVERY_SECONDS:
             return
         if self.compress:
-            # A zstd frame cannot be truncated to an offset, so each checkpoint
-            # seals the current file; resume then always starts a fresh one.
             self.writer.rotate()
         else:
             self.writer.flush()
@@ -802,7 +765,6 @@ class DomainBuilder:
         self._last_ckpt_time = now
         self._bytes_since_ckpt = 0
 
-    # ---- the actual pull -------------------------------------------------
 
     def run(self) -> dict:
         """Stream until the byte target is met, then split out val and finalize."""
@@ -950,10 +912,6 @@ class DomainBuilder:
             val_bytes += len(self.reservoir[i])
         val_files = val_writer.close_final()
         if not val_files and n > 0:
-            # A domain that produced documents always gets a val file, even if
-            # the split rounded to nothing, so downstream globs stay uniform.
-            # A blocked domain gets nothing -- an empty val file would make it
-            # look built.
             empty = self.dir / ("val_000" + (".jsonl.zst" if self.compress else ".jsonl"))
             empty.touch()
             val_files = [empty.name]
@@ -1034,11 +992,6 @@ def _read_jsonl(path: Path, compress: bool) -> Iterator[bytes]:
                     yield line
 
 
-# --------------------------------------------------------------------------
-# smoke subset
-# --------------------------------------------------------------------------
-
-
 def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: int,
                 compress: bool, log) -> dict:
     """Mirror the corpus at 1/divisor scale by resampling the produced files."""
@@ -1051,7 +1004,6 @@ def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: in
             continue
         train_src = sorted(f for f in dm["files"] if f.startswith("train"))
         if not train_src:
-            # blocked domain: nothing to resample, and no empty shell left behind
             if dst_dir.is_dir() and not any(dst_dir.iterdir()):
                 dst_dir.rmdir()
             continue
@@ -1064,8 +1016,6 @@ def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: in
         train_files = train_src
         val_files = sorted(f for f in dm["files"] if f.startswith("val"))
 
-        # Bernoulli-sample documents so the subset spans the whole domain
-        # rather than just its head.
         keep_p = min(1.0, (target / max(1, dm["actual_bytes"])) * 1.15) if dm["actual_bytes"] else 1.0
         writer = RotatingWriter(dst_dir, "train", compress)
         n_train = 0
@@ -1081,8 +1031,6 @@ def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: in
                     if acc >= target:
                         break
         if n_train == 0:
-            # Bernoulli sampling can come up empty on a very small domain; fall
-            # back to a head slice so every domain still has a train file.
             for f in train_files:
                 if acc >= target or n_train >= 50:
                     break
@@ -1094,7 +1042,6 @@ def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: in
                         break
         out_train = writer.close_final()
 
-        # val keeps the same 0.5%-style ratio, floored so bpb stays measurable
         val_lines = []
         for f in val_files:
             val_lines.extend(_read_jsonl(src_dir / f, compress))
@@ -1129,11 +1076,6 @@ def build_smoke(corpus_root: Path, smoke_root: Path, manifest: dict, divisor: in
         log(f"  smoke {name}: {actual / 1e6:.1f} MB, {n_train} train + "
             f"{domains[name]['documents_val']} val docs")
     return domains
-
-
-# --------------------------------------------------------------------------
-# manifest + report
-# --------------------------------------------------------------------------
 
 
 def finish_manifest(domains: dict, seed: int, total_tokens: int) -> dict:
@@ -1224,11 +1166,6 @@ def _dir_bytes(path: Path) -> int:
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
 
 
-# --------------------------------------------------------------------------
-# entry point
-# --------------------------------------------------------------------------
-
-
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Build the nanoChat pretraining corpus.")
     ap.add_argument("--out", default="data/corpus", type=Path)
@@ -1283,7 +1220,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         try:
             from huggingface_hub import get_token
-            token = get_token()          # env var or ~/.cache/huggingface/token
+            token = get_token()
         except Exception:
             token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
         if not token:
@@ -1309,7 +1246,6 @@ def main(argv: Optional[list[str]] = None) -> int:
                 f"{res['documents_train']:,} train + {res['documents_val']:,} val, "
                 f"status={res['status']}")
 
-    # assemble the manifest from every domain that has a result on disk
     domains: dict[str, dict] = {}
     for d in DOMAINS:
         res = _read_domain_result(out_root, d)
@@ -1358,10 +1294,6 @@ def _read_domain_result(out_root: Path, d: Domain) -> Optional[dict]:
 
 if __name__ == "__main__":
     code = main()
-    # Closing a HuggingFace stream early leaves a retrying HTTP worker behind
-    # that keeps the interpreter from finalizing. Everything we wrote is
-    # already flushed, fsynced and renamed into place, so leave immediately
-    # rather than hanging forever on that thread.
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(code)
