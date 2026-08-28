@@ -5,6 +5,7 @@ The goal was to build the mini architecture of Chatgpt as it is actually written
 ## Result
 A 132M-parameter model in 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. Pretrained for 7.4 hours on 5.75B tokens on a single H100.
 
+###Training Curve
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
   <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
