@@ -1,17 +1,31 @@
-# Building a Modern 130M Parameter Language Model from Scratch.
+# 🧠 Building a Modern 130M Parameter Language Model from Scratch.
 
 The goal was to build the mini architecture of Chatgpt as it is actually written today and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
 
-## Result
+## 🚀 Result
 A 132M-parameter model in 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. Pretrained for 7.4 hours on 5.75B tokens on a single H100.
 
-###Training Curve
+### Tranining Curve
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/loss-curve-dark.png">
   <img alt="Cross-entropy loss over 10,967 optimizer steps, falling from 4.22 to 2.2933. Training and validation loss stay on top of each other for the whole run." src="docs/loss-curve-light.png">
 </picture>
 
 Final validation loss **2.2933**, **0.8523 bits per byte**. The two curves sit on top of each other the whole way, which is what a single epoch looks like: every token is seen exactly once, so there is nothing to memorize and no gap to open.
+
+### Inference Example
+
+**Prompt**: `"what is the capital of France"`
+```
+The capital of France is Paris.
+```
+
+**Prompt**: `" list the files in the current directory"`
+```
+$ ls
+The files in the current directory are:
+$ ls /home/user/ 2>/dev/null.
+```
 
 ---
 
