@@ -164,6 +164,5 @@ Validation loss fell at every one of the 54 evaluation points and tracked the tr
 - [karpathy/nanoGPT](https://github.com/karpathy/nanoGPT) and [karpathy/nanochat](https://github.com/karpathy/nanochat) — the latter is the main reference for architecture choices and chat template design.
 - Every performance number was measured on the hardware named beside it. The baseline behind "990×" is my own first naive implementation, not any mature library, and the "~200×" at 24,274 merges is extrapolated from measured points at 500 and 3,000.
 - **bpb is only comparable on the same evaluation data.** The 0.8523 above is measured on this project's own validation split, which is 40% code and therefore more predictable than prose. It is not comparable to bpb published against WikiText or C4.
-- The loss curve is plotted from 35 of the run's 54 evaluation points (`docs/train-partial.log`); markers sit on real evaluations, so the two marker-free stretches are exactly where points are missing.
 
 MIT.
