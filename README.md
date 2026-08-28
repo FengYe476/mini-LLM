@@ -28,8 +28,8 @@ $ ls /home/user/ 2>/dev/null.
 ```
 
 ---
-# Use the model at https://huggingface.co/ye476/mini-llm-132m
-## The model
+# 🎮 Use the model at https://huggingface.co/ye476/mini-llm-132m
+## 🏢 The model sturcture
 
 Decoder-only, 12 layers × 12 heads × 768 wide, 1024 context, 132.3M parameters.
 
