@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Self-check for a corpus produced by build_corpus.py.
 
 Runs standalone against a corpus directory, prints PASS/FAIL per check, and
@@ -95,7 +94,6 @@ def scan(root: Path, res: Results) -> None:
     blocked = {n for n, d in manifest["domains"].items()
                if d.get("status") == "blocked" or not d.get("files")}
 
-    # ---- C1 -------------------------------------------------------------
     bad = []
     for name in domain_names:
         d = root / name
@@ -115,7 +113,6 @@ def scan(root: Path, res: Results) -> None:
             (f"{len(checked)} domains ok"
              + (f"; {len(blocked)} blocked domain(s) skipped: {sorted(blocked)}" if blocked else "")))
 
-    # ---- per-line checks: C2 C3 C6 C7, feeding C4 C5 C8 ------------------
     all_ids: set[str] = set()
     total_lines = 0
     c2_bad: list[str] = []
@@ -208,7 +205,6 @@ def scan(root: Path, res: Results) -> None:
     res.add("C8", "no duplicate text within a domain",
             not c8_bad, "; ".join(c8_bad) if c8_bad else f"{len(present)} domains")
 
-    # ---- C9: share, renormalized over the domains actually built ---------
     built = [n for n in domain_names if n not in blocked and n in disk_bytes]
     total_actual = sum(disk_bytes[n] for n in built)
     total_target_share = sum(manifest["domains"][n]["target_share"] for n in built)
@@ -227,11 +223,9 @@ def scan(root: Path, res: Results) -> None:
             not c9_bad if built else None,
             ("; ".join(c9_bad) if c9_bad else ", ".join(detail_bits)) + note)
 
-    # ---- C10 ------------------------------------------------------------
     res.add("C10", "no jsonl file exceeds 512 MB",
             not c10_bad, "; ".join(c10_bad) if c10_bad else f"{len(present)} domains")
 
-    # ---- C11 ------------------------------------------------------------
     c11_bad = []
     for name in built:
         recorded = manifest["domains"][name]["actual_bytes"]
