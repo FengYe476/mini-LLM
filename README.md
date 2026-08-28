@@ -1,9 +1,8 @@
-# mini-LLM
+**building a modern 130M parameter language model from scratch.**
 
-**A learning record: building a modern language model from scratch, one technique at a time.**
+The goal was to build the mini architecture of Chatgpt as it is actually written today and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
 
-The goal was to build the mini architecture of Chatgpt as it is actually written today — RoPE, KV caching, RMSNorm, SwiGLU — and to understand each piece well enough to write it, test it, and prove it correct rather than merely plausible.
-
+**Result**
 A 132M-parameter model in 1,790 lines of Python across ten modules, with three third-party dependencies (`torch`, `numpy`, `regex`). Apart from PyTorch's tensor ops, not a line comes from `transformers` or `tiktoken`. Pretrained for 7.4 hours on 5.75B tokens on a single H100.
 
 <picture>
